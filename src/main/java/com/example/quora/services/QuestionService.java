@@ -7,21 +7,24 @@ import org.springframework.stereotype.Service;
 import com.example.quora.dto.QuestionRequestDTO;
 
 import com.example.quora.dto.QuestionResponseDTO;
-
+import com.example.quora.events.ViewCountEvent;
 import com.example.quora.models.Question;
+import com.example.quora.producers.KafkaEventProducer;
 import com.example.quora.repositories.QuestionRepository;
 import com.example.quora.utils.CursorUtils;
+
+import lombok.RequiredArgsConstructor;
+
 import com.example.quora.adapter.QuestionAdapter;
 
 import reactor.core.publisher.*;
 @Service
+@RequiredArgsConstructor
 public class QuestionService  implements IQuestionService {
 
     private final QuestionRepository questionRepository;
+    private final KafkaEventProducer kafkaEventProducer;
 
-    public QuestionService(QuestionRepository questionRepository) {
-        this.questionRepository = questionRepository;
-    }
 
     @Override
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO) {
@@ -63,6 +66,17 @@ public class QuestionService  implements IQuestionService {
             .doOnComplete(() -> System.out.println("Retrieved all questions successfully."));
         }
 
+    }
+    @Override
+    public Mono<QuestionResponseDTO> getQuestionById(String id) {
+        return questionRepository.findById(id)
+                .map(QuestionAdapter::toResponseDTO)
+                .doOnError(error -> System.err.println("Error retrieving question: " + error.getMessage()))
+                .doOnSuccess(response -> {
+                    System.out.println("Retrieved question successfully: " + response.getId());
+                    ViewCountEvent viewCountEvent = new ViewCountEvent(response.getId(), "question", LocalDateTime.now());
+                    kafkaEventProducer.publicViewCountEvent(viewCountEvent);
+                });
     }
 
 }
